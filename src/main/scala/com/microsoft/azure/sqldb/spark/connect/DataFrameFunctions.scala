@@ -45,7 +45,7 @@ private[spark] case class DataFrameFunctions[T](@transient dataFrame: DataFrame)
     * @param config the database connection properties and bulk copy properties
     * @param metadata the metadata of the columns - will be null if not specified
     */
-  def bulkCopyToSqlDB(config: Config, metadata: BulkCopyMetadata = null, createTable:Boolean = false): Unit = {
+  def bulkCopyToSqlDB(config: Config, metadata: BulkCopyMetadata = null, createTable:Boolean = false, columnMappings:scala.collection.immutable.Map[String, String] = null): Unit = {
     // Ensuring the table exists in the DB already
     if(createTable) {
       dataFrame.limit(0).write.sqlDB(config)
@@ -69,7 +69,7 @@ private[spark] case class DataFrameFunctions[T](@transient dataFrame: DataFrame)
     } else {
       metadata
     }
-    dataFrame.foreachPartition(iterator => bulkCopy(config, iterator, actualMetadata))
+    dataFrame.foreachPartition(iterator => bulkCopy(config, iterator, actualMetadata, columnMappings))
   }
 
   private def getConnectionOrFail(config:Config):Try[Connection] = {
@@ -94,7 +94,7 @@ private[spark] case class DataFrameFunctions[T](@transient dataFrame: DataFrame)
     * @param iterator an iterator for a dataframe partition.
     * @param metadata User specified bulk copy metadata.
     */
-  private def bulkCopy(config: Config, iterator: Iterator[Row], metadata: BulkCopyMetadata): Unit = {
+  private def bulkCopy(config: Config, iterator: Iterator[Row], metadata: BulkCopyMetadata, columnMappings:scala.collection.immutable.Map[String, String]): Unit = {
     var connection: Connection = null
     try {
       connection = ConnectionUtils.getConnection(config)
@@ -121,6 +121,14 @@ private[spark] case class DataFrameFunctions[T](@transient dataFrame: DataFrame)
 
       val fileRecord = new SQLServerBulkDataFrameFileRecord(iterator, bulkCopyMetadata)
       val sqlServerBulkCopy = new SQLServerBulkCopy(connection)
+
+      //SLS - Add the column mappings based on what is coming in on the metadata
+
+      if(columnMappings != null) {
+        for ((k, v) <- columnMappings) {
+          sqlServerBulkCopy.addColumnMapping(k, v)
+        }
+      }
 
       sqlServerBulkCopy.setDestinationTableName(dbTable)
       sqlServerBulkCopy.setBulkCopyOptions(BulkCopyUtils.getBulkCopyOptions(config))
